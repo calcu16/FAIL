@@ -1,0 +1,640 @@
+\documentclass[12pt,letterpaper]{report}
+\usepackage[margin=1in]{geometry}
+\author{Andrew Carter}
+\date{24 July 2011}
+\title{Functional Assembly Instruction Language 16 Standard}
+\newcommand{\reg}[1]{\left[#1\right]}
+\newcommand{\mem}[3]{\left(#1, #2, #3\right)}
+\newcommand{\nil}{NULL}
+\newcommand{\ronly}{[R]}
+\newcommand{\wonly}{[W]}
+\newcommand{\rw}{[R/W]}
+\newcommand{\SEE}{\textbf{Forward Reference} }
+\newcommand{\fref}[2]{#2 \ref{#1:#2}}
+\newcommand{\instructions}[1]{\texttt{\\ #1}}
+\newcommand{\comment}[1]{}
+\setcounter{tocdepth}{4}
+\setcounter{secnumdepth}{4}
+\begin{document}
+\maketitle
+\tableofcontents
+\chapter{Introduction}
+\section{This Document}
+This document is intended for developers to create a simulator or processor that handles the Functional Assembly Instruction Language 16 bit instruction set, from here on referred to as FAIL 16 without knowledge of any other simulators or processors, and that programs adhering to specified behavior will give the same results on all machines assuming the resources of the machines can handle the program, and the program does not rely on unspecified or unpredictable behavior. This is also intended as a guide for programmers to program in or compile to this assembly language.
+
+While this document is intended to provide specific behavior, it leaves room for extensions. Any extensions is valid as long as if the implementation were treated just by this document it would provide the same functionality.
+
+At the end of the document there is also a rationale, which is not required for implementation or programming. However it is recommended if the reader is interested as to why things are the way they are, why certain functionality does not exist or requirements placed on the system, or is interested in extending or replacing parts of the architecture.
+
+\SEE \fref{label}{Unspecified Behavior}, \fref{label}{Unpredictable Behavior}, \fref{label}{Rationale}
+\section{FAIL 16}
+This assembly language is provided as a registered functional assembly language. This is a 16 bit assembly language, referring to both the word size, and instruction size, although instruction may take constant arguments thus being in effect multi word instructions. As you will see briefly this does not necessarily refer to how much memory is used.
+
+Programs built in this instruction set are broken up into calls, with each call having no side effects and being made out of instructions.
+
+\SEE \fref{label}{Calls}
+\section{Purpose}
+The goal is to have an assembly language that can reap the benefits of functional programming at a hardware level.
+
+Because programs are split into calls, which are pure, we can do interesting stuff such as memorization, where repeated calls to the same address with the same arguments can be hashed and the result only calculated once. While it is also possible to do such things in software, it adds overhead when done at runtime, and in general it is not decidable at compile time.
+
+\SEE \fref{label}{Calls}
+\chapter{Definitions}
+\section{Unspecified Behavior}
+\label{label:Unspecified Behavior}
+The term unspecified behavior means that it is up to the hardware (or emulator) to define the specification. Unspecified behavior cannot result in a program failing, and it must be a reasonable implementation.
+\section{Unpredictable Behavior}
+\label{label:Unpredictable Behavior}
+The term unpredictable behavior to mean behavior for which software cannot depend on a result even for the same implementation. Unpredictable behavior may not effect programs other than the source of the behavior, and if the program fails it must fail in a clean fashion (such as having an exit code).
+\section{Integer}
+An integer refers to an 16 bit integer (short). This integer is considered to be both signed and unsigned, stored in two's complement form. Of course the implementation can store the integer however it deems necessary, but it must yield the same results as implementations that store it in two's complement forms (that is all implementations must be homomorphic over the integer operations to the two's complement form).
+
+All numbers unless otherwise specified are considered to be in decimal. Numbers that reference the bits in an instruction fields or system calls are in binary, and are from most significant bit to least significant bit. Numbers that begin with the prefix $0x$ are in hexadecimal.
+
+\SEE \fref{label}{Instruction Fields}, \fref{label}{System Calls}
+\section{Alignment}
+\subsection{Short aligned}
+Things that are considered short aligned, means that incrementing the pointer by $1$ moves the pointer by $16$ bits.
+\subsection{Char aligned}
+Things that are considered char aligned, means that incrementing the pointer by $1$ moves the pointer by $8$ bits.
+\section{Memory}
+Memory is split into two types, instruction memory and data memory
+\subsection{Data Memory}
+A single memory unit contains reference to 1 integer and 2 memory units. Each memory unit can only be written to once, so once it is written to, it will always have that value. The amount of memory is dependent on the capabilities on the system. There is no way for a program to access data memory except through the GETI/GETM/SAVE instructions, and thus garbage collection can proceed by reachability.
+
+To reference things stored in memory the following convention is used $\mem{SI0}{SM0}{SM1}$, so that $SI0$ represents the stored integer, $SM0$ and $SM1$ the first and second memory locations, these can even be nested as follows $\mem{SI0}{\mem{SI0_N}{SM0_N}{SM1_N}}{SM1}$ where $SMI0_N, SM0_N, SM1_N$ are all nested memory locations which represents the division of $SM0$ from the first example.
+
+\SEE \fref{instruction}{GETI}, \fref{instruction}{GETM}, \fref{instruction}{SAVE}
+\subsubsection{NULL}
+There is a special memory location $\nil$, which has its integer set to $0$, and both of its memory units are also $\nil$ or $\nil = \mem{0}{\nil}{\nil}$.
+\subsection{Instruction Memory}
+Instruction memory is split from data memory, and represents the instructions. The memory can only be affected by a kernel system call, and is immutable as a whole (instead of write once as is the case for Data Memory). Instruction memory is read short aligned by a program, although char aligned when written or read as a peripheral.
+\subsection{Registers}
+All of the instructions refer to registers, these are mutable temporary storage and divided between value registers and memory registers. Any implementation must support at least 3 value registers and 3 memory registers, the assembly architecture itself allows up to 7 value registers and 7 memory registers.
+
+Throughout this document, the integer registers will be referred to as $I0 - I7$, and memory registers referred to as $M0 - M7$.
+\section{Functional Units}
+\subsection{Program Structure}
+Each program is divided up in sequential units that are divided by system calls. The program initially starts at location $0$ in instruction memory with all of the value registers start at $0$, and all of the memory registers containing the value $\nil$.
+
+The return from this function is a system call.
+
+\SEE \fref{label}{System Calls}
+\subsection{Calls}
+\label{label:Calls}
+Each call is pure, including the top level call. Whenever a new call is created M0 is the argument, and all integer registers are reset to $0$, and all other memory registers contain $\nil$. Each call has an implicit return memory address where the return value is stored. Each call is divided up into individual execution bits called instructions.
+
+\SEE \fref{instruction}{CALL}
+\subsection{Instructions}
+Instructions are the atomic directive in almost every instruction set architecture (hence the name). All instructions can be broken up into $3$ categories.
+\subsubsection{Register Instructions}
+These instructions calculate a value and store it in a register, after execution the program moves onto the next instruction (constants are considered part of this instruction, and all other instructions so the next instruction is never a constant for the current instruction).
+
+\SEE \fref{label}{Constants}
+\subsubsection{Conditional Instructions}
+These instructions conditionally execute the next instruction, if the condition is false it advances past that instruction (including constants) to the one after, otherwise it continues as normal. The instruction after a Conditional Instruction can be any type of instruction, including another conditional (creating an A implies B type condition).
+
+\SEE \fref{label}{Constants}
+\subsubsection{Return Instructions}
+These instructions are the actual value represented by the call. If we think of the call not as a order to the processor but a description of a value (possibly a recursive definition). For instance $1 + 1$ can be interpreted as take $1$ and then add $1$ to it, which in processors that have mutable memory is a more accurate description, but in this ISA where all calls have no side effects $1 + 1$ is another way of saying $2$ (or depending on the Peano Arithmetic definiton you prefer the $2 + 0$ which can then be reduced to $2$). This instruction merely indicates to the processor that this is what the value the call (which is presumably in from another instruction) is.
+
+\SEE \fref{instruction}{CALL}, \fref{instruction}{RETS}, \fref{instruction}{RETM}, \fref{instruction}{RETC}, \fref{instruction}{RETG}
+\chapter{Instruction Set}
+\section{Instruction Fields}
+\label{label:Instruction Fields}
+\begin{itemize}
+\item The first bit is always $0$.
+\item The next 3 bits of an instruction are the opcode. In addition to define the operation, the opcode gives information as to what type of registers are to be used.
+\item The next 3 sets of 3 bits are argument registers referenced as RR, RS, and RT respectively. These can either give more detail for the operation or indicate the type of register to be used in the operation.
+\item The last 3 bits is the result register referenced by RD.
+\end{itemize}
+\subsection{Opcode}
+\begin{itemize}
+\item RD is considered to be a memory register if the second bit is set, otherwise it is an integer register.
+\item RT is considered to be a memory register if the third bit is set, otherwise it is an integer register.
+\item RS is considered to be a memory register if either the second or the third bit is set, otherwise it is an integer register.
+\item RR is always considered a memory register.
+\end{itemize}
+\subsection{Argument Registers}
+If an argument register is $7$, or all bits set, then if it is a memory register it is to be considered $\nil$, otherwise the next instruction is loaded as a constant, and is used instead of the value in a integer register.
+\subsubsection{Constants}
+\label{label:Constants}
+Because this a relatively small instruction set, and there is not much room with 3 integer registers and 16 bits, can take the place of an integer from a register. If $RS$ indicates a constant ($RS = 7$ and neither the second or third bit is set of the opcode), then the next word is considered the value of $\reg{RS}$. Similarly if $RT$ is a constant then the next word (which would be another word after if $RS$ represents a constant) is considered the value of $\reg{RT}$.
+\comment{
+Later in this document, constants will be made use of inside instructions. A constant inside of an instruction will be indicated by  being just a number as opposed to a register (which are always prefixed by $M$ or $I$). For instance
+\instructions{
+ADD, I0, 10, I0 \\
+}
+$I0$ would reference the $1^{st}$ integer register, while $10$ is equivalent to the $8^{th}$ integer register, followed by a constant.
+
+Labels are a special kind of constant, to help reference function calls. A label is denoted by the a '$:$', on the left side of a word that starts a line, while label constants are prefixed by the '$:$', so for instance
+\instructions{
+LABEL: \\
+ADD :LABEL, 3, V0 \\
+LABEL2: \\ 
+}
+would add $3$ to the location of the instruction, with two constants the instruction happens to reference the next instructions, so $\reg{V0} = :LABEL2$.
+
+\SEE \fref{instruction}{ADD}
+}
+\subsection{Result Registers}
+If the result register is $7$, or all bits set, then if it is a memory register it returns the memory unit created instead, otherwise it conditional executes the next instruction.
+\section{Instruction List}
+\subsection{0000 : Logical instructions}
+\subsubsection{0000 000  RS  RT  RD : AND}
+And
+
+This instruction stores the bitwise AND of $\reg{RS}$ and $\reg{RT}$ into $\reg{RD}$.
+\subsubsection{0000 000  RS  RT 111 : IFNX}
+If not intersect
+
+This instruction tells the processor to execute the next instruction only if a bit is set in both $\reg{RS}$ and $\reg{RT}$.
+\subsubsection{0000 001  RS  RT  RD : NAND}
+Not and
+
+This instruction stores the COMPLEMENT of the bitwise AND of $\reg{RS}$ and $\reg{RT}$ into $\reg{RD}$.
+\subsubsection{0000 001  RS  RT 111 : IFX}
+If intersect
+
+This instruction tells the processor to execute the next instruction only if there are not bits set in both $\reg{RS}$ and $\reg{RT}$.
+\subsubsection{0000 010  RS  RT  RD : XOR}
+Exclusive or
+
+This instruction stores the bitwise XOR of $\reg{RS}$ and $\reg{RT}$ into $\reg{RD}$.
+\subsubsection{0000 010  RS  RT 111 : IFEQ}
+If equal
+
+This instruction tells the processor to execute the next instruction only if $\reg{RS}$ is equal to $\reg{RT}$.
+\subsubsection{0000 011  RS  RT  RD : ORN}
+Or not
+
+This instruction stores the bitwise OR of $\reg{RS}$ and the COMPLEMENT of $\reg{RT}$ into $\reg{RD}$.
+\subsubsection{0000 011  RS  RT 111 : IFS}
+If subset
+
+This instruction tells the processor to execute the next instruction only if every set bit of $\reg{RT}$ is set in $\reg{RS}$.
+\subsubsection{0000 100  RS  RT  RD : ANDN}
+And not
+
+This instruction stores the bitwise AND of the COMPLEMENT of $\reg{RS}$ and $\reg{RT}$ into $\reg{RD}$.
+\subsubsection{0000 100  RS  RT 111 : IFNS}
+If not subset
+
+This instruction tells the processor to execute the next instruction only if there is a set bit of $\reg{RT}$ is not set in $\reg{RS}$.
+\subsubsection{0000 101  RS  RT  RD : XNOR}
+Exclusive not or
+
+This instruction stores the COMPLEMENT of the bitwise XOR of $\reg{RS}$ and $\reg{RT}$ into $\reg{RD}$.
+\subsubsection{0000 101  RS  RT 111 : IFNEQ}
+If equal
+
+This instruction tells the processor to execute the next instruction only if $\reg{RS}$ is not equal to $\reg{RT}$.
+\subsubsection{0000 110  RS  RT  RD : NOR}
+Not or
+
+This instruction stores the COMPLEMENT of the bitwise OR of $\reg{RS}$ and $\reg{RT}$ into $\reg{RD}$.
+\subsubsection{0000 110  RS  RT 111 : IFU}
+If union
+
+This instruction tells the processor to execute the next instruction only if all bits are either set in $\reg{RS}$ or $\reg{RT}$.
+\subsubsection{0000 111  RS  RT  RD : NOR}
+Or
+
+This instruction stores the bitwise OR of $\reg{RS}$ and $\reg{RT}$ into $\reg{RD}$.
+\subsubsection{0000 111  RS  RT 111 : IFNU}
+If not union
+
+This instruction tells the processor to execute the next instruction only if a bit is not set in both $\reg{RS}$ and $\reg{RT}$.
+\subsection{0001 : Arithmetic instructions}
+\subsubsection{0001 000  RS  RT  RD : ADD}
+\label{instruction:ADD}
+Addition
+
+This instruction stores the result of $\reg{RS} + \reg{RT}$ into $\reg{RD}$.
+\subsubsection{0001 000  RS  RT 111 : IFLTM}
+If less than minus
+
+This instruction tells the process to execute the next instruction only if $\reg{RT} < -\reg{RS}$.
+\subsubsection{0001 001  RS  RT  RD : ROTR}
+Rotate right
+
+This instruction stores the result of rotating $\reg{RT}$ right by $\reg{RS}$ into $\reg{RD}$. If $\reg{RS} \geq 16$ the result is equivalent to the last rotating by the last $4$ bits of $\reg{RS}$.
+\subsubsection{0001 001  RS  RT 111 : IFGTEM}
+If greater than or equal minus
+
+This instruction tells the process to execute the next instruction only if $\reg{RT} \geq -\reg{RS}$.
+\subsubsection{0001 010  RS  RT  RD : SRL}
+Shift right logical
+
+This instruction stores the result of shifting an unsigned $\reg{RT}$ right by $\reg{RS}$ into $\reg{RD}$. If $\reg{RS} \geq 16$the result is unspecified behavior, this behavior can treat $\reg{RS}$ as signed or unsigned, this behavior must be consistent with all other shifts.
+\subsubsection{0001 010  RS  RT 111 : IFC}
+If carry
+
+This instruction tells the process to execute the next instruction only if $\reg{RT} + \reg{RS}$ overflows when treated as signed integers, so either $\reg{RT}$ and $\reg{RS}$ are both negative and the result would be positive, or they are both positive and the result would be negative.
+\subsubsection{0001 011  RS  RT  RD : SRA}
+Shift right arithmetic
+
+This instruction stores the result of shifting an unsigned $\reg{RT}$ right by $\reg{RS}$ into $\reg{RD}$. If $\reg{RS} \geq 16$the result is unspecified behavior, this behavior can treat $\reg{RS}$ as signed or unsigned, this behavior must be consistent with all other shifts.
+\subsubsection{0001 011  RS  RT 111 : IFO}
+If overflow
+
+This instruction tells the process to execute the next instruction only if $\reg{RT} + \reg{RS}$ overflows when treated as unsigned integers, that is the result is less than both $\reg{RT}$ and $\reg{RS}$ (note : if the result is less than either it is less than both).
+\subsubsection{0001 100  RS  RT  RD : SUB}
+Subtraction
+
+This instruction stores the result of $\reg{RS} - \reg{RT}$ into $\reg{RD}$.
+\subsubsection{0001 100  RS  RT 111 : IFLT}
+If less than
+
+This instruction tells the process to execute the next instruction only if $\reg{RT} < \reg{RS}$.
+\subsubsection{0001 101  RS  RT  RD : ROTL}
+Rotate left
+
+This instruction stores the result of rotating $\reg{RT}$ left by $\reg{RS}$ into $\reg{RD}$. If $\reg{RS} \geq 16$ the result is equivalent to the last rotating by the last $4$ bits of $\reg{RS}$.
+\subsubsection{0001 101  RS  RT 111 : IFGTE}
+If greater than or equal
+
+This instruction tells the process to execute the next instruction only if $\reg{RT} \geq \reg{RS}$.
+\subsubsection{0001 110  RS  RT  RD : SLL}
+Shift left logical
+
+This instruction stores the result of shifting an unsigned $\reg{RT}$ left by a signed $\reg{RS}$ into $\reg{RD}$. If $\reg{RS} \geq 16$the result is unspecified behavior, this behavior can treat $\reg{RS}$ as signed or unsigned, this behavior must be consistent with all other shifts.
+\subsubsection{0001 110  RS  RT 111 : IFCM}
+If carry minus
+
+This instruction tells the process to execute the next instruction only if $\reg{RT} - \reg{RS}$ overflows when treated as signed integers.
+\subsubsection{0001 111  RS  RT  RD : SLA}
+Shift left arithmetic
+
+This instruction stores the result of shifting an unsigned $\reg{RT}$ left by $\reg{RS}$ into $\reg{RD}$. If $\reg{RS} \geq 16$ the result is unspecified behavior, this behavior can treat $\reg{RS}$ as signed or unsigned, this behavior must be consistent with all other shifts.
+\subsubsection{0001 111  RS  RT 111 : IFOM}
+If overflow minus
+
+This instruction tells the process to execute the next instruction only if $\reg{RT} - \reg{RS}$ overflows when treated as unsigned integers.
+\subsection{0010 : Get value}
+\subsubsection{0010 000  RS  RT  RD : GETI}
+\label{instruction:GETI}
+Get Integer
+
+Gets the integer indicated by $RS$ of memory location $\reg{RT}$ and stores it into $\reg{RD}$, without extensions, $RS$ should always be $0$.
+\subsubsection{0010 000  RS  RT 111 : IFNL}
+If not load
+
+This instruction tells the process to execute the next instruction only if the $RS$ value of memory location $\reg{RT}$ is $0$.
+\subsubsection{0010 001  RS  RT 111 : IFL}
+If load
+
+This instruction tells the process to execute the next instruction only if the $RS$ value of memory location $\reg{RT}$ is $0$.
+\subsection{01 : Memory Instructions}
+\subsubsection{0100  RR  RS  RT  RD : SAVE}
+\label{instruction:SAVE}
+Save
+
+This instruction creates a NEW memory unit that contains $\mem{\reg{RT}}{\reg{RS}}{\reg{RR}}$ and stores its location into $\reg{RD}$.
+\subsubsection{0100  RR  RS  RT 111 : RETS}
+\label{instruction:RETS}
+Return save
+
+Returns the memory unit $\mem{\reg{RT}}{\reg{RS}}{\reg{RR}}$.
+\subsubsection{0101 111  RS  RT  RD : CALL}
+\label{instruction:CALL}
+Call
+
+This instruction tells the processor to calculate the memory unit returned by starting at instruction memory $\reg{RT}$, with $\reg{M0} = RS$, and store the location into $\reg{RD}$. All other memory and integer registers are unspecified. Instruction memory for this purpose is considered to be short addressed (as opposed to char addressed), so it is in the range of $[0-32767]$, a call to something outside of this range should exhibit the same behavior as a program which incremented into that range.
+\subsubsection{0101 111  RS  RT 111 : RETC}
+\label{instruction:RETC}
+Return call
+
+This instruction tells the processor that the return of this call, is the same as the return of the call to $\reg{RT}$, with $\reg{M0} = RS$.
+\subsubsection{0110 000 000  RT  RD : MOVE}
+Move
+
+This instruction sets $\reg{RD} = \reg{RT}$.
+\subsubsection{0110 000 000  RT 111 : RETM}
+\label{instruction:RETM}
+Return memory
+
+This instruction returns $\reg{RT}$.
+\subsubsection{0111 000 RS  RT  RD : GETM}
+\label{instruction:GETM}
+Get memory
+
+Gets the memory unit indicated by RS of memory location $\reg{RT}$ and stores it into $\reg{RD}$, without extensions, $RS$ should always be $0$ or $1$.
+\subsubsection{0111 000 RS  RT 111 : RETG}
+\label{instruction:RETG}
+Return get
+
+Returns the memory unit indicated by RS of memory location $\reg{RT}$.
+\chapter{System Calls}
+\label{label:System Calls}
+\section{List of System Calls}
+A system call is sent in the form of $\mem{SC}{\mem{SARG}{\nil}{\nil}}{\mem{RFUNC}{\nil}{RARGS}}$. Where $SC$ is the type of system call, along with an $8$ bit argument, and $SARG$ is a $16$ bit argument to the system call (although only $8$ bits are used in some cases, in these cases the number is truncated, and the least significant bits are used). The other memory value refers to the function that is to be called after the system call completes, $RFUNC$ is the function the function to be called back, and $RARGS$ is the callback argument (which may be modified), under no circumstance should the action of a system call be determined by the arguments.
+
+All system calls should appear to an program to be executed in the order that the program knows that they should occur. This means that all system call generated by a single program should have the results as if they were executed in order (even if they were not), and if a program uses the system call $SEND$ to talk to another program, and the other program calls $POLL$, and receives the $SEND$ then all system call up to including the $SEND$ should be determined to happen before the $POLL$ and all subsequent system calls, the same with $EXIT$ and $DEAD$. Repeated $SEND$ system calls by the same program should show up in the same order when another program executes a $POLL$. Similar situations can be contrived with other system calls.
+
+The first 4 bits of a system call determine what type of system call it is, and the system calls are listed by them.
+
+\SEE \fref{syscall}{SEND}, \fref{syscall}{POLL}, \fref{syscall}{EXIT}, \fref{syscall}{DEAD}
+\subsection{User System Calls}
+The system calls can be sent by any program
+\subsubsection{0000 : EXIT}
+\label{syscall:EXIT}
+The program exits with an exit code given by the last 8 bits $\left[0, 255\right]$.
+
+Everything else is ignored, there is no callback.
+\subsubsection{0001 : DEAD}
+\label{syscall:DEAD}
+Checks that return status of all programs executed by this program.\footnote{DEAD is only useful for programs that can execute Restricted System Calls, because normal programs cannot execute new programs.}
+
+Calls $RFUNC$ with $\mem{NUM}{DEATHS}{RARGS}$ where $NUM$ is the number of deaths, and $DEATHS$ is a singly linked list of $\mem{SOURCE}{\mem{EC}{\nil}{\nil}}{DEATHS}$. $SOURCE$ is the $PID$ of the program and $EC$ is its exit code. Exit codes outside of the range of $\left[0,255\right]$ were generated by the system and not the program.
+\begin{enumerate}
+\item[$\bullet-1$] Indicates that the program ran out of memory.
+\item[$\bullet-2$] Indicates that the program tried to execute an illegal instruction.
+\item[$\bullet-3$] Indicates that the program read from non-existent instruction memory (a negative location), if that is the result of the implementation.
+\item[$\bullet-4$] Indicates that the program attempted a restricting system call without permission.
+\item[$\bullet-5$] Indicates that the program attempted an unused system call.
+\end{enumerate}
+
+Program deaths must be ordered in the order that they occur, they may be ordered as newest first or last, but must be consistent within an implementation. In addition if the program that executed a program no longer exists a death may be reported one higher, ignored, or reported to a future program that takes that slot, make sure that a program that spawns waits for its dead.
+\subsubsection{0010 : SEND}
+\label{syscall:SEND}
+Sends a message to a program with $PID$ of the last 8 bits (0 - 255). The message is $SARG$.
+
+Calls $RFUNC$ with $\mem{STATUS}{\nil}{RARGS}$ where $STATUS$ is 0 if the message was successfully sent, or non-zero if it was not, for instance the other program does not exist, because it was never created or already exited.
+\subsubsection{0011 : POLL}
+\label{syscall:POLL}
+Checks for any messages sent to this program.
+
+Calls $RFUNC$ with $\mem{NUM}{MESSAGES}{RARGS}$ where $NUM$ is the number of messages, $MESSAGES$ is a singly linked list of $\mem{SOURCE}{\mem{WORD}{\nil}{\nil}}{MESSAGES}$. $SOURCE$ is the $PID$ of the source of the messages and $WORD$ is the message. Messages must be ordered in the order in which they arrive and the ordering of newest first or last must be consistent with the ordering of deaths.
+\subsection{Restricted System Calls}
+These system calls can only be sent by programs in kernel mode. All other programs will be terminate with an exit code of $-4$.
+\subsubsection{1100 : READ}
+\label{syscall:READ}
+Reads a value from a peripheral. Peripherals are machine dependent.
+
+Returns $\mem{CHAR}{\nil}{RARGS}$ where $CHAR$ is an 8 bit character read from the peripheral, if $CHAR$ is $-1$ then the peripheral was unable to be read.
+\subsubsection{1101 : LOAD}
+\label{syscall:LOAD}
+Loads a value into a peripheral. Peripherals are machine dependent.
+
+Returns $\mem{STATUS}{\nil}{RARGS}$ where STATUS was the status of the load, if status is $0$ then the load succeeded, otherwise the load failed.
+\subsubsection{1110 : EXEC}
+\label{syscall:EXEC}
+Executes a new program starting at program data SARG with the program data of the last $7$ bits (128 different program storage, maximum), and $M0=\nil$. If the bit 8 is set, then the program is called in kernel mode.
+
+Returns $\mem{PID}{\nil}{RARGS}$ where $PID$ is the process id of the created program, if $PID$ is negative then there was an error, $-1$ if to many processes, $-2$ if the program storage does not exist, other errors may exist as well.
+\subsubsection{1111 : KILL}
+\label{syscall:KILL}
+Stops the program indicated by the last 8 bits of the instruction.
+
+Returns $\mem{EC}{\nil}{RARGS}$ where $EC$ is the exit code if the program has already exited, otherwise it returns $-1$ if the program successfully killed it, and $-2$ if the process does not exist. This will terminate all of the process before continuing (so the process ID will be able to be used again). In other words if there is only one kernel process running, than a successful $KILL$ followed by an $EXEC$ never fail with a $-1$ error. Processes that are killed do not show up when $DEAD$ is called.
+\chapter{Peripherals}
+Peripherals are machine dependent, and how they are set up is on a peripheral by peripheral preference. All reads and writes to peripherals are character sized.
+
+The least significant bits of $SC$ indicate the register on the peripheral, while the next least significant bits indicate the peripheral that is being written to.
+
+The peripherals are machine dependent and have a recommended form
+\begin{enumerate}
+\item[0x0] READ ADDRESS 0 \rw
+
+This is the least significant address that the read value is read from.
+\item[0x1] READ ADDRESS 1 \rw
+
+This is the next least address that the read value is read from.
+\item[0x2] READ ADDRESS 2 \rw
+
+This is the next least address that the read value is read from.
+\item[0x3] READ ADDRESS 2 \rw
+
+This is the most significant address that the read value is read from.
+\item[0x4] READ STATUS \rw
+
+This is the status of the read value, if this peripheral does not exist then it must be $0$, $1$ indicates that it exists, and $3$ indicates that it is ready to be read from.
+\item[0x5] READ ADDRESS ADDRESS \rw
+
+If 64 bits of address space is not enough then this additional field can set which part of the address is being set, for a total of 
+$2^{22}$ bits of address space, which hopefully should be more than enough.
+\item[0x6] READ VALUE \ronly
+
+This is the value of the peripheral given the address register, reading this value should increment the address by $1$ character. This register is only valid if the READ STATUS is $3$.
+
+\item[0x7] ANSWER \ronly
+
+A \nil terminated response to the QUERY.
+
+\item[0x8] LOAD ADDRESS 0 \rw
+
+This is the least significant address that the load value is loaded into.
+\item[0x9] LOAD ADDRESS 1 \rw
+
+This is the next least address that the load value is loaded into.
+\item[0xA] LOAD ADDRESS 2 \rw
+
+This is the most significant address that the load value is loaded into.
+\item[0xB] LOAD ADDRESS 2 \rw
+
+This is the most significant address that the load value is loaded into.
+\item[0xC] LOAD STATUS \ronly
+
+This is the status of the load value, if this peripheral cannot be written to then it must be $0$, $1$ indicates that it is able to be loaded into, and $3$ indicates that it is ready to be loaded into.
+\item[0xD] LOAD ADDRESS ADDRESS \rw
+If 64 bits of address space is not enough then this additional field can set which part of the address is being set, for a total of 
+$2^{22}$ bits of address space, which hopefully should be more than enough.
+\item[0xE] LOAD VALUE \wonly
+
+This is the register that when written to writes to the peripheral given the address in LOAD ADDRESS, this is only valid if status is $3$.
+
+\item[0xF] QUERY \wonly
+
+A query used for plug-in devices to determine what they are so the OS can use the correct driver. This is a string that is terminated via a read from ANSWER.
+\end{enumerate}
+
+It is also recommended that when address is loaded or read from, it is automatically moved to the next address.
+
+In general peripherals may be set up however, but the first three peripherals will be necessary or useful for booting, and I have recommendations for their actions.
+\section{Peripheral 0 : Instruction Memory}
+\label{peripheral:Instruction Memory}
+Peripheral $0$ shall have the following.
+\begin{enumerate}
+\item[0x0] READ ADDRESS 0 \rw
+
+This is the least significant address that the read value is read from.
+\item[0x1] READ ADDRESS 1 \rw
+
+This is the next least address that the read value is read from.
+\item[0x2] READ ADDRESS 2 \rw
+
+This is the most significant address that the read value is read from.
+\item[0x4] READ STATUS \rw
+
+This is the status of the read value, if this peripheral does not exist then it must be $0$, $1$ indicates that it exists, and $3$ indicates that it is ready to be read from.
+\item[0x6] READ VALUE \ronly
+
+This is the value of the peripheral given the address register, reading this value should increment the address by $1$ character. This register is only valid if the READ STATUS is $3$.
+\item[0x8] LOAD ADDRESS 0 \rw
+
+This is the least significant address that the load value is loaded into.
+\item[0x9] LOAD ADDRESS 1 \rw
+
+This is the next least address that the load value is loaded into.
+\item[0xA] LOAD ADDRESS 2 \rw
+
+This is the most significant address that the load value is loaded into.
+\item[0xC] LOAD STATUS \ronly
+
+This is the status of the load value, if this peripheral cannot be written to then it must be $0$, $1$ indicates that it is able to be loaded into, and $3$ indicates that it is ready to be loaded into.
+\item[0xE] LOAD VALUE \wonly
+
+This is the register that when written to writes to the peripheral given the address in LOAD ADDRESS, this is only valid if status is $3$.
+\end{enumerate}
+This peripheral represents instruction memory, it does not need to be readable. It is assumed that the original program is in LOAD ADDRESS 1 = 0, note that this is character addressed as opposed to short addressed, and thus it takes two writes to write a single instruction. Writing instruction memory that is in use (as determined by execs) is undefined behavior.
+\section{Peripheral 1 : Boot Disk}
+\label{peripheral:Boot Disk}
+Peripheral $1$ shall have the following.
+\begin{enumerate}
+\item[0x0] READ ADDRESS 0 \rw
+
+This is the least significant address that the read value is read from.
+\item[0x1] READ ADDRESS 1 \rw
+
+This is the next least significant address that the read value is read from.
+\item[0x2] READ ADDRESS 2 \rw
+
+This is the next least significant address that the read value is read from.
+\item[0x3] READ ADDRESS 3 \rw
+
+This is the most significant address that the read value is read from.
+\item[0x4] READ STATUS \rw
+
+This is the status of the read value, if this peripheral does not exist then it must be $0$, $1$ indicates that it exists, and $3$ indicates that it is ready to be read from.
+\item[0x6] READ VALUE \ronly
+
+This is the value of the peripheral given the address register, reading this value should increment the read address by $1$ character. This register is only valid if the READ STATUS is $3$.
+\item[0x8] LOAD ADDRESS 0 \rw
+
+This is the least significant address that the load value is loaded into.
+\item[0x9] LOAD ADDRESS 1 \rw
+
+This is the next least significant address that the load value is loaded into.
+\item[0xA] LOAD ADDRESS 2 \rw
+
+This is the next least significant address that the load value is loaded into.
+\item[0xB] LOAD ADDRESS 3 \rw
+
+This is the most significant address that the load value is loaded into.
+\item[0xC] LOAD STATUS \ronly
+
+This is the status of the load value, if this peripheral cannot be written to then it must be $0$, $1$ indicates that it is able to be loaded into, and $3$ indicates that it is ready to be loaded into.
+\item[0xE] LOAD VALUE \wonly
+
+This is the register that when written to writes to the peripheral given the address in LOAD ADDRESS, this is only valid if status is $3$. Writing to this location should increase the LOAD ADDRESS by 1.
+\end{enumerate}
+
+This peripheral represents the location of the program that should be loaded when booting up (it may merely be a boot script that boots from another location). The hardware is expected to load the first 65536 16 bit integers (8 bits at a time), and then execute that program in kernel mode, it does not have to be writable. This may also double as the hard drive without too much trouble.
+\section{Peripheral 2 : Terminal}
+\label{peripheral:Boot Output}
+Peripheral $2$ shall have the following 
+\begin{enumerate}
+\item[0x4] READ STATUS \rw
+
+This is the status of the read value, if this peripheral does not exist then it must be $0$, $1$ indicates that it exists, and $3$ indicates that it is ready to be read from.
+\item[0x6] READ VALUE \ronly
+
+This is the value of the peripheral given the address register, reading this value should increment the address by $1$ character. This register is only valid if the READ STATUS is $3$.
+\item[0xC] LOAD STATUS \ronly
+
+This is the status of the load value, if this peripheral cannot be written to then it must be $0$, $1$ indicates that it is able to be loaded into, and $3$ indicates that it is ready to be loaded into.
+\item[0xE] LOAD VALUE \wonly
+
+This is the register that when written to writes to the peripheral given the address in LOAD ADDRESS, this is only valid if status is $3$.
+\end{enumerate}
+
+This peripheral does not have to exist, but is expected to be where the hardware can print error messages to, it does not have to be readable. This can easily double as the peripheral for the terminal.
+\section{Other peripherals}
+All other peripherals are unspecified, but it is recommended that they keep to the same format for consistency.
+\chapter{Operation}
+The general operation of a FAIL 16 processor is of course some things that all implementations have to be aware of.
+\section{Memory Management}
+All memory must be managed internally, any program which at any given state can reach a constant number of memory locations, should it be able to reach that state, should never run out of memory. Basically this is guaranteeing no memory leaks. Here, what is considered a memory locations is unspecified, but two practical interpretations are
+\begin{itemize}
+\item All memory locations that can be reached via the GETM instruction
+\item All memory locations that can be reached via the GETM instruction, and in addition an additional memory location for each call required to calculate that memory location.
+\end{itemize}
+There is of course no guarantee as to when or how the memory management is done, and programs that use up most of the available memory with high turnover rates should expect to lose a lot of cycles to garbage collection.
+
+Out of memory errors are unpredictable, however an additional constrain is levied upon them, and that is there should be a reasonable amount of memory that under which an out of memory error can be created, thus ensuring ``protected memory'' while allowing an implementation to share memory locations between processes to meet differing demands of programs.
+\section{Infinite Calculations}
+\subsection{Infinite Loops}
+For the purposes of this document an infinite loop will be defined as a function call which can (via any implementation) return an answer, contrast this to an infinite list
+
+The behavior of an infinite loop is unpredictable. This allows a processor to kill a program that it can confirm is infinite looping. The simplest (if completely unhelpful) \footnote{If memory was $2^{16}$ memory locations, each containing $3,$ $16$ bit integers, then at a rate of $2^{64}$ operations per second, or approximately $2 \times 10^9$ gigahertz, it would still take approximately $2^{3,145,647}$ years to run through all of the states, needless to say not very many infinite loops would get caught this way} is to simply have a counter, as large as usable memory, that increases by $1$ for every change to memory, if that counter every overflows, then the processor ran out of states and is stuck in an infinite loop, all infinite loops will either trigger this or cause the processor to run out of memory. There are of course more restrictive ways to catch an infinite loop which will allow some of them to continue, such as checking to see when $RETC$ is called thats its not the same arguments to the function one just called. So for this reason the behavior is allowed to be unpredictable, thus allowing a processor to if it chooses, selectively kill processes that are infinite looping.
+
+\SEE \fref{label}{Infinite Lists}
+\subsection{Infinite Lists}
+\label{label:Infinite Lists}
+Infinite lists, could also be described as infinite trees, but is the result of any calculation for which the processor can calculate depth $N$ in finite time, but at least one branch never terminates (note that termination in this case means ending with a \nil memory location). In this case the behavior is unspecified, some possible behaviors are
+\subsubsection{Never Return}
+This might be the result of an in order processor, which keeps a stack of all the states, and upon coming across a call, pushes it's current state onto the stack and calculates the new function.
+\subsubsection{Return, but continue calculating}
+This might result from a processor that specifically tries to avoid running into trouble, while still getting through as much calculations as possible. Such a processor might use a queue, and upon reaching a CALL, put the call on the end of the queue, if a GETI or GETM is called on a CALL that has not returned yet, put it on the end of the queue and load the first item on the queue.
+
+If left to run long enough, this implementation can have an out of memory error, however since the result is not an infinite list problem, but an out of memory error, the result can still be unpredictable (at some point the processor runs out of memory) even though the infinite list is unspecified, because the memory error is unpredictable and that is what is being tripped.
+\subsubsection{Calculate as needed}
+This may be the result of a processor that does lazy evaluation. Such a processor might whenever it receives a CALL, store a memory location with its arguments, upon needing that location it puts the current computation on the stack and then calculates that value.
+\chapter{Rationale}
+\label{label:Rationale}
+\section{Introduction}
+This chapter is an explanation of design choices for FAIL 16. This means that this chapter will not contain information necessary to implement the design, or to program for the design, however it may shed light on questions as to why the design is as it is. This rationale is not written in an order pertaining to the design, but rather in an order that I believe best provides understanding, it is recommended that it is read in the order that it is presented, since later entries may require the context of previous entries to fully understand the commentary.
+\section{Why?}
+In recent times there has been a push for thread level parallelism. This due to the relatively low cost of creating a multi core processor (where multi is currently either 2 or 4 for general consumer products, and 8 and 48 for servers) as opposed to increasing the speed of an individual core. Also it allows parts of the program whose progress is impeded by inherently slow operations, such as retrieving information from the hard disk, to continue computing values for the rest of the program while it waits.
+
+However programming for multiple cores is non-trivial, deadlocks and race conditions can plague even the simplest programs, and often there is a cost associated with making a program multi threaded, so a program geared towards an $n$ core machine may suffer performance on a $n/2$ core machine compared to the single threaded version of the program. There has been a recent revival in studying programming languages target for such machines. Topics such as green threading, and other lightweight thread technologies to limit the overhead of threads, as well as message passing, and languages with higher level lock constructs to aid in avoiding deadlock and race conditions.
+
+There has also been a revival in functional languages as a competitor to their imperative counterparts, which if truly functional, can avoid race conditions and deadlocking altogether. While require a different approach to programming in them, programming for the single core processor would be the same as programming multiple cores, only the compiler or interpreter would use the number of cores available, or use light-weight threads to saturate available computing power. However these languages do not correspond well with traditional instruction set architectures, and as such hardware is unable to take advantage of implicit assumptions of functional languages, and there is only so much optimization that can be done at compile time to make up for this.
+
+Furthermore cache coherency and memory hierarchy cause problems when multiple threads are overwriting the same piece of data, developing a language which greatly restricts this to essential transmission (System Calls). Restricting memory operations even allows a program to be able to decide what it does not have to write back to main memory, perhaps relieving some of the strain on the buses, and can write back whenever it is convenient, in addition it may also be easier to cache due to forced locality of memory locations (i.e. there are no arbitrary loads, given a set of $n$ registers there are at most $2n$ reachable memory locations within $1$ instruction).
+\section{Memory}
+\subsection{Immutable Memory}
+This is the foundation of the language, everything else is designed around this idea. It corresponds to functional programming, and allows for the advantages of it to be reaped at the lowest level. However there are of course disadvantages, such as forced automatic memory management and a lack of arrays. While memory management is reasonable, and most modern languages support it anyway, arrays are a tenant of most languages. Even functional programming languages acknowledge the need for arrays, and have some construct that allows for them. They provide $O\left(1\right)$ look-up and storage either by indexing or hashing, whereas without hardware optimization the best FAIL 16 can do is $O\left(\log n\right)$.
+
+However in the ever approaching age of parallelism, I believe it will be easier at both a hardware level and a software level to manage programs which do not overwrite what others are doing except in very constrained manners, which in this case are system calls.
+\subsection{Garbage Collection}
+This is probably the most controversial, and hardest part to decide about the language. While most programmers use automated memory allocation, by the very procedural nature of whatever language they happen to be working with it is usually possible to calculate how much memory can be used. If memory is actually important traditional languages allow you design your program to be able to conserve memory and keep within the bounds of the system. At the very least if one runs out of memory, most languages let the programmer figure out how to handle that.
+
+This is not possible anymore, if a program runs out of memory there is no guarantee that it will be able to be rewritten to fix this, memory management is forcibly taken away from the programmer and given to the hardware. I do not feel that automatic garbage collection is a benefit of the language, however it does appear to be a necessity to enable other features.
+\subsection{Memory comparisons}
+There is no memory comparison instruction, which is usually a fairly common operation otherwise. However there are some significant reasons for removing it. The first is it allows memory locations to change, a memory location itself becomes no more than the values it contains, thus it can be combined with another location that contains the same data by the hardware without worrying about the effect it could have on a program.
+
+If there were a raw pointer comparator then one of $3$ things would have to be true
+\begin{enumerate}
+\item The the standard would have to accept race conditions within a function calls 
+\item Function calls with to different lines or with a different argument could never be unified if the have the same result
+\item All functions would have to be evaluated in order
+\end{enumerate}
+Race conditions are general something to be avoided if all possible, especially since the bugs it generates are hard to reproduce. The last two put constraints on the implementation that may be undesirable.
+
+Something that may be added into the language in the future is a complex instruction that does a deep comparison of two memory pointers. However that can go infinite rather easily, which I'd rather have a program hang by going through instructions, than hang on just one instruction, and hides a very complicated task within $1$ instruction. Definitely for the first go around this is intended to be a very simple instruction set.
+
+An alternative is for an implementation to be able to discover when a function returns the same result if the argument is in the form of $\mem{i}{A}{A}$ where $i$ is any integer, and $A$ is any memory location.
+\subsubsection{$\nil$ comparison}
+Probably more controversial is the lack of a $\nil$ comparison, this means that there can be no generalized comparison function as a program would need to know the depth of the tree when computing it, that is not to say one could write a program with enough structure to write a generalized comparison function within a program, however it still would not work for an arbitrary data value, just the ones that are used.
+
+If $\nil$ had its own comparison, than it would be different the the location $\mem{0}{\nil}{\nil}$ which might lead to some ugly programs testing if a value is $0$ and returning $\nil$ if it is. It would also mean that the implementation would either have to wait for a call to calculate its value before testing if its $\nil$ or memory locations returned from calls are never $\nil$, which might lead to even more ugly code.
+
+\section{Jumps and Branches}
+There are no traditional jumps or branches.
+
+Jumps have been replaced by CALL and RETC, which is more codifying something that always occurred rather than any big changes, you still use them for function calls.
+
+Branches have pretty much disappeared, the replacement is the IF group of instructions, which become a branch $1$. This is a little bit of a trade-off between simplicity in prediction at a cost of complicating code. On a list of design choices most likely to be reneged this probably leads the list. However it does allow for stricter program analysis, because any function call is bounded in how many instructions by the next return not preceded by an if. It minimizes the cost of multi-word instructions (right now only loading constants) because there is no real penalty to loading them because they will be needed soon anyway. And lastly it limits prediction to whether the statement will be executed rather than what the next instruction is, hopefully mitigating some of the costs of misprediction (and moving them over into CALL, no free lunch here).
+\section{System calls}
+The raw instruction set allows for no race conditions, has no side effects, is completely pure, the same arguments will always provide the same results. Unfortunately the real world requires side effects, has race conditions, and the arguments are provided from this world. It has been a general problem with functional languages handling things such as input and output, and three of the the most common solutions are breaking the functional paradigm, lazily evaluated lists, and monads. Unfortunately none of the three work particularly well at an assembly level.
+
+Breaking the functional paradigm completely negates the purpose of being functional in the first place, and in order to gain an possibility of optimization the hardware would have to determine if there is such an instruction coming up, not something one wants to be doing at runtime.
+
+Lazily evaluated lists would be alright if there was only one data source, and then threading an output argument through could lead to an output stream, and the input would be the argument to the first function. However this is a constrained solution, opening up files, any sort of non-determinism, true two-way communication are likely either impossible, or if they are possible are probably hacks. This does not mean there is no elegant solution of course, but it certainly is not readily apparent.
+
+The thing that is implemented is actually very close to monads, except the whole in-line part. The implementation is actually more of how compilers break down monads, that is there are sequential parts of a program due to a real world constraint, and these must be done in order. These are represented by the top level return values of FAIL 16, and this allows a separation on things that need to be calculated in order, and raw computations that need to be done. In fact a particularly gutsy implementation may feed recall the function without knowing what the value of the result is, and calculate that out later, and make sure all the precedence results work out, overall it allows for a lot of freedom compared to lazy lists, without sacrificing the advantages of the language as would result from breaking the paradigm.
+
+If system calls are recorded somewhere, this also allows for race conditions to be easily reproduced, and greatly limits the number of permutations events can happen in. In addition, when executing a function the system cannot deadlock, without hardware optimizations, as functions do not have access to their own return values.\footnote{It is of course possible to deadlock if the hardware stores the result of multiple functions with the same argument in the same location, in this case it is possible to get the return address of the function merely by calling having the function call itself with the arguments passed into it, this of course also generates an infinite loop in non-interning memory, so the above analysis applies.} All that remains is livelock, which is called by an infinite loop rather than starvation by a lack of access. Infinite loops are problems in single threaded systems and are not a result of parallelism, as regardless of how many threads are running it will occur. This limits the cases of true deadlock and livelock to system calls, which the hardware, or hardware with software assistance can keep track of allowing deadlock analysis to be applied at a system scale rather than trying to do analysis within a program.
+\end{document}
